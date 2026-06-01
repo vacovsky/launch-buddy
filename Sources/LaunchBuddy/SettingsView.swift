@@ -35,7 +35,7 @@ struct SettingsView: View {
         }
         .fileImporter(
             isPresented: $isShowingFilePicker,
-            allowedContentTypes: [.executable],
+            allowedContentTypes: [.item],
             allowsMultipleSelection: false
         ) { result in
             if case .success(let urls) = result, let url = urls.first {
