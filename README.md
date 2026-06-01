@@ -35,14 +35,14 @@ This builds the project and launches the `.app` bundle.
 ## Project Structure
 
 ```
-Sources/llmlaunch/
-├── llmlaunchApp.swift      # @main entry, menu bar extra + windows
-├── MenuBarControl.swift    # Menu bar toggle + menu items
-├── SettingsView.swift      # Script path, login items, restore toggle
-├── OutputView.swift        # Live output viewer with pin/unpin
-├── ProcessManager.swift    # Child process lifecycle (launch/kill/monitor)
-├── AppSettings.swift       # UserDefaults wrapper
-└── Info.plist              # LSUIElement (hidden from dock)
+Sources/llmlaunch/AppSettings.swift
+Sources/llmlaunch/Info.plist
+Sources/llmlaunch/llmlaunchApp.swift
+Sources/llmlaunch/MenuBarControl.swift
+Sources/llmlaunch/OutputView.swift
+Sources/llmlaunch/ProcessManager.swift
+Sources/llmlaunch/SettingsView.swift
+Sources/llmlaunch/Test.swift
 ```
 
 ## Notes
