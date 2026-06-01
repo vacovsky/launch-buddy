@@ -39,6 +39,7 @@ Sources/LaunchBuddy/AppSettings.swift
 Sources/LaunchBuddy/Info.plist
 Sources/LaunchBuddy/LaunchBuddyApp.swift
 Sources/LaunchBuddy/MenuBarControl.swift
+Sources/LaunchBuddy/NSTextViewWrapper.swift
 Sources/LaunchBuddy/OutputView.swift
 Sources/LaunchBuddy/ProcessManager.swift
 Sources/LaunchBuddy/SettingsView.swift
