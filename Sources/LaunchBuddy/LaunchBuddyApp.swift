@@ -9,7 +9,7 @@ class AppLifecycle: NSObject, NSApplicationDelegate {
 }
 
 @main
-struct llmlaunchApp: App {
+struct LaunchBuddyApp: App {
     @NSApplicationDelegateAdaptor(AppLifecycle.self) var lifecycle
     @State private var iconFilled = false
     private let pm = ProcessManager.shared
@@ -18,7 +18,7 @@ struct llmlaunchApp: App {
         MenuBarExtra {
             MenuBarControl()
         } label: {
-            Label("llmlaunch", systemImage: iconFilled ? "brain.fill" : "brain")
+            Label("Launch Buddy", systemImage: iconFilled ? "brain.fill" : "brain")
         }
         .menuBarExtraStyle(.menu)
         .onChange(of: pm.running) {

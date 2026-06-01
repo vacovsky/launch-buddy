@@ -5,8 +5,8 @@
     <key>LSUIElement</key>
     <true/>
     <key>CFBundleIdentifier</key>
-    <string>com.llmlaunch.app</string>
+    <string>com.launchbuddy.app</string>
     <key>CFBundleName</key>
-    <string>llmlaunch</string>
+    <string>Launch Buddy</string>
 </dict>
 </plist>

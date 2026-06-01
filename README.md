@@ -1,4 +1,4 @@
-# llmlaunch
+# Launch Buddy
 
 macOS tray app that toggles a script on/off with a single click.
 
@@ -35,13 +35,13 @@ This builds the project and launches the `.app` bundle.
 ## Project Structure
 
 ```
-Sources/llmlaunch/AppSettings.swift
-Sources/llmlaunch/Info.plist
-Sources/llmlaunch/llmlaunchApp.swift
-Sources/llmlaunch/MenuBarControl.swift
-Sources/llmlaunch/OutputView.swift
-Sources/llmlaunch/ProcessManager.swift
-Sources/llmlaunch/SettingsView.swift
+Sources/LaunchBuddy/AppSettings.swift
+Sources/LaunchBuddy/Info.plist
+Sources/LaunchBuddy/LaunchBuddyApp.swift
+Sources/LaunchBuddy/MenuBarControl.swift
+Sources/LaunchBuddy/OutputView.swift
+Sources/LaunchBuddy/ProcessManager.swift
+Sources/LaunchBuddy/SettingsView.swift
 ```
 
 ## Notes

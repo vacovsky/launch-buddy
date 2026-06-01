@@ -13,7 +13,7 @@ final class ProcessManager {
     var launchError: String?
     var outputLines: [String] = []
 
-    private var outputQueue = DispatchQueue(label: "llmlaunch.output")
+    private var outputQueue = DispatchQueue(label: "launchbuddy.output")
 
     private init() {}
 

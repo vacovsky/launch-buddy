@@ -3,11 +3,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "llmlaunch",
+    name: "LaunchBuddy",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "llmlaunch"
+            name: "LaunchBuddy"
         )
     ]
 )
