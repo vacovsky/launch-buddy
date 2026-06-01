@@ -42,7 +42,6 @@ Sources/llmlaunch/MenuBarControl.swift
 Sources/llmlaunch/OutputView.swift
 Sources/llmlaunch/ProcessManager.swift
 Sources/llmlaunch/SettingsView.swift
-Sources/llmlaunch/Test.swift
 ```
 
 ## Notes
