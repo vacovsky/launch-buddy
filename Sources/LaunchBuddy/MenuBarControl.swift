@@ -22,7 +22,7 @@ struct MenuBarControl: View {
                         .toggleStyle(.switch)
                         .scaleEffect(0.8)
                         .allowsHitTesting(false)
-                    Text(pm.running ? "Running" : "Stopped")
+                    Text(pm.running ? "Stop Script" : "Start")
                         .foregroundStyle(pm.running ? .green : .primary)
                 }
             }
