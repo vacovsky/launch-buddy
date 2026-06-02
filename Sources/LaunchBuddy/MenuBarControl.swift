@@ -28,13 +28,19 @@ struct MenuBarControl: View {
             }
             .buttonStyle(.plain)
 
-            if !settings.scriptPath.isEmpty {
-                Text(settings.scriptPath)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
+             if !settings.scriptPath.isEmpty {
+                 Button {
+                     let url = URL(fileURLWithPath: settings.scriptPath)
+                     NSWorkspace.shared.open(url)
+                 } label: {
+                     Text(settings.scriptPath)
+                         .font(.caption2)
+                         .foregroundStyle(.secondary)
+                         .lineLimit(1)
+                         .truncationMode(.middle)
+                 }
+                 .buttonStyle(.plain)
+             }
 
             if let launchError = pm.launchError {
                 Text(launchError)
