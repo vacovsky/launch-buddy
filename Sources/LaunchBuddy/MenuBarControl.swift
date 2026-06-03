@@ -33,11 +33,18 @@ struct MenuBarControl: View {
                      let url = URL(fileURLWithPath: settings.scriptPath)
                      NSWorkspace.shared.open(url)
                  } label: {
-                     Text(settings.scriptPath)
-                         .font(.caption2)
-                         .foregroundStyle(.secondary)
-                         .lineLimit(1)
-                         .truncationMode(.middle)
+                     HStack {
+                         Text(settings.scriptPath)
+                             .font(.caption2)
+                             .foregroundStyle(.secondary)
+                             .lineLimit(1)
+                             .truncationMode(.middle)
+                         if pm.running {
+                             Circle()
+                                 .fill(.green)
+                                 .frame(width: 8, height: 8)
+                         }
+                     }
                  }
                  .buttonStyle(.plain)
              }

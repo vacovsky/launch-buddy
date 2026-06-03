@@ -47,11 +47,20 @@ final class ProcessManager {
             let pipe = Pipe()
 
             let ext = URL(fileURLWithPath: scriptPath).pathExtension.lowercased()
+            let stdbuf = "/usr/bin/stdbuf"
+            
+            // Force unbuffered output for common languages
+            var env = ProcessInfo.processInfo.environment as [String: String]
+            env["PYTHONUNBUFFERED"] = "1"
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
+            proc.environment = env
+            
             if ["sh", "bash", "zsh", "csh", "ksh", "fish"].contains(ext) {
-                proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
-                proc.arguments = [scriptPath]
+                proc.executableURL = URL(fileURLWithPath: stdbuf)
+                proc.arguments = ["-o0", "-e0", "/bin/zsh", scriptPath]
             } else {
-                proc.executableURL = URL(fileURLWithPath: scriptPath)
+                proc.executableURL = URL(fileURLWithPath: stdbuf)
+                proc.arguments = ["-o0", "-e0", scriptPath]
             }
 
             proc.standardOutput = pipe
@@ -59,16 +68,16 @@ final class ProcessManager {
 
             pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
                 if let data = try? handle.read(upToCount: 65536),
-                   let text = String(data: data, encoding: .utf8) {
-                    self?.outputQueue.async {
-                        var lines = self?.outputLines ?? []
-                        lines.append(contentsOf: text.components(separatedBy: .newlines))
-                        if lines.count > 1000 {
-                            lines = Array(lines.suffix(1000))
-                        }
-                        self?.outputLines = lines
-                    }
-                }
+                                                let text = String(data: data, encoding: .utf8) {
+                                                                                        Task { @MainActor in
+                                                                                            var lines = self?.outputLines ?? []
+                                                                                            lines.append(contentsOf: text.components(separatedBy: .newlines))
+                                                                                            if lines.count > 1000 {
+                                                                                                lines = Array(lines.suffix(1000))
+                                                                                            }
+                                                                                            self?.outputLines = lines
+                                                                                        }
+                                                                            }
             }
 
             proc.terminationHandler = { [weak self] _ in
