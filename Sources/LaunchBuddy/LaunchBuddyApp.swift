@@ -2,28 +2,37 @@ import SwiftUI
 import AppKit
 
 class AppLifecycle: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        ScriptSignalGuard.install()
+        let settings = AppSettings()
+        if settings.restoreOnLaunch {
+            ProcessManager.shared.start(scriptPath: settings.scriptPath)
+        }
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         ProcessManager.shared.killSync()
         return .terminateNow
+    }
+    func applicationWillTerminate(_ notification: Notification) {
+        // Second safety net for the graceful-quit path; the signal guard
+        // covers SIGTERM/SIGINT, where AppKit skips the delegate entirely.
+        ProcessManager.shared.killSync()
     }
 }
 
 @main
 struct LaunchBuddyApp: App {
     @NSApplicationDelegateAdaptor(AppLifecycle.self) var lifecycle
-    @State private var iconFilled = false
     private let pm = ProcessManager.shared
 
     var body: some Scene {
         MenuBarExtra {
             MenuBarControl()
         } label: {
-            Label("Launch Buddy", systemImage: iconFilled ? "brain.fill" : "brain")
+            Label("Launch Buddy", systemImage: pm.running ? "brain.fill" : "brain")
         }
         .menuBarExtraStyle(.menu)
-        .onChange(of: pm.running) {
-            iconFilled = pm.running
-        }
 
         Window("Output", id: "output") {
             OutputView()

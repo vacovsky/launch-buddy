@@ -31,12 +31,16 @@ struct NSTextViewWrapper: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
-        guard let textView = nsView.documentView as? NSTextView else { return }
-        if textView.string != text {
-            textView.string = text
-            if pinned {
-                textView.scrollToEndOfDocument(nil)
-            }
+        guard let textView = nsView.documentView as? NSTextView,
+              textView.string != text else { return }
+
+        let offset = nsView.contentView.bounds.origin
+        textView.string = text
+        if pinned {
+            textView.scrollToEndOfDocument(nil)
+        } else {
+            // Keep the user's scroll position stable across reflow.
+            nsView.contentView.scroll(NSPoint(x: offset.x, y: offset.y))
         }
     }
 }

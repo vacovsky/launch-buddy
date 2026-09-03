@@ -4,7 +4,8 @@ import ServiceManagement
 struct SettingsView: View {
     @State private var settings = AppSettings()
     @State private var isShowingFilePicker = false
-    @State private var launchAtLogin: Bool = false
+    @State private var launchAtLogin = false
+    @State private var loginItemError: String?
 
     var body: some View {
         Form {
@@ -24,6 +25,12 @@ struct SettingsView: View {
                     .onChange(of: launchAtLogin) { _, newValue in
                         setLaunchAtLogin(newValue)
                     }
+
+                if let loginItemError {
+                    Text(loginItemError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
 
                 Toggle("Restore script on launch", isOn: $settings.restoreOnLaunch)
             }
@@ -56,8 +63,10 @@ struct SettingsView: View {
             } else {
                 try appService.unregister()
             }
+            loginItemError = nil
         } catch {
-            print("Failed to update login items: \(error)")
+            loginItemError = error.localizedDescription
+            launchAtLogin = isRegisteredForLogin()
         }
     }
 }

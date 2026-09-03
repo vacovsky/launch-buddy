@@ -14,6 +14,10 @@ cp "$BUILD_DIR/LaunchBuddy" "$APP_DIR/Contents/MacOS/"
 cp "$SCRIPT_DIR/Sources/LaunchBuddy/Info.plist" "$APP_DIR/Contents/"
 printf 'APPL????' > "$APP_DIR/Contents/PkgInfo"
 
+# Ad-hoc signing gives the bundle a stable identity, which the login item
+# API (SMAppService) needs to register.
+codesign --force --sign - "$APP_DIR"
+
 # Launch
 open "$APP_DIR"
 echo "Launch Buddy started — check your menu bar for the 🧠 icon."

@@ -5,16 +5,14 @@ struct MenuBarControl: View {
     private let pm = ProcessManager.shared
     private let settings = AppSettings()
     @Environment(\.openWindow) private var openWindow
-    @State private var toggledOn = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Button {
-                toggledOn.toggle()
-                if toggledOn {
-                    pm.start(scriptPath: settings.scriptPath)
-                } else {
+                if pm.running {
                     pm.stop()
+                } else {
+                    pm.start(scriptPath: settings.scriptPath)
                 }
             } label: {
                 HStack {
@@ -28,26 +26,26 @@ struct MenuBarControl: View {
             }
             .buttonStyle(.plain)
 
-             if !settings.scriptPath.isEmpty {
-                 Button {
-                     let url = URL(fileURLWithPath: settings.scriptPath)
-                     NSWorkspace.shared.open(url)
-                 } label: {
-                     HStack {
-                         Text(settings.scriptPath)
-                             .font(.caption2)
-                             .foregroundStyle(.secondary)
-                             .lineLimit(1)
-                             .truncationMode(.middle)
-                         if pm.running {
-                             Circle()
-                                 .fill(.green)
-                                 .frame(width: 8, height: 8)
-                         }
-                     }
-                 }
-                 .buttonStyle(.plain)
-             }
+            if !settings.scriptPath.isEmpty {
+                Button {
+                    let url = URL(fileURLWithPath: settings.scriptPath)
+                    NSWorkspace.shared.open(url)
+                } label: {
+                    HStack {
+                        Text(settings.scriptPath)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        if pm.running {
+                            Circle()
+                                .fill(.green)
+                                .frame(width: 8, height: 8)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
 
             if let launchError = pm.launchError {
                 Text(launchError)
@@ -74,10 +72,5 @@ struct MenuBarControl: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .onChange(of: pm.running) {
-            if toggledOn != pm.running {
-                toggledOn = pm.running
-            }
-        }
     }
 }

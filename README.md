@@ -9,7 +9,7 @@ macOS tray app that toggles a script on/off with a single click.
 - **Script output viewer** — live tail with selectable/copyable text, pin to follow or scroll freely
 - **Configurable script path** — browse or type any executable path
 - **Launch at login** — optional, via system login items
-- **Child process cleanup** — script dies when the app quits (process group kill)
+- **Child process cleanup** — the script and its child processes die when the app quits or is terminated (process-group kill on quit, SIGTERM, and SIGINT)
 
 ## Requirements
 
@@ -47,7 +47,8 @@ Sources/LaunchBuddy/SettingsView.swift
 
 ## Notes
 
+- If `/usr/bin/stdbuf` is available, scripts run through it to force unbuffered stdout/stderr; on older systems they execute directly
 - Scripts with `.sh`, `.bash`, `.zsh` extensions are run via `/bin/zsh`
 - Non-executable scripts are auto-chmod'd on launch
 - Last 1000 lines of output are kept in memory
-- Child processes are killed via process group on app quit
+- The script's process group is killed when the app quits or receives SIGTERM/SIGINT (covers logout, shutdown, and `kill`); a `kill -9` of the app is uncatchable, so its children may survive until they exit on their own

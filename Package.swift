@@ -7,7 +7,8 @@ let package = Package(
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "LaunchBuddy"
+            name: "LaunchBuddy",
+            exclude: ["Info.plist"]
         )
     ]
 )

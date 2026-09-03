@@ -3,7 +3,7 @@ import SwiftUI
 struct OutputView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var pinned = true
-    @State private var text = ""
+    @State private var text: String = ProcessManager.shared.outputLines.joined(separator: "\n")
 
     var body: some View {
         VStack(spacing: 0) {
@@ -37,15 +37,8 @@ struct OutputView: View {
             )
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
         }
-        .task {
-            text = ProcessManager.shared.outputLines.joined(separator: "\n")
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(50))
-                let newText = ProcessManager.shared.outputLines.joined(separator: "\n")
-                if newText != text {
-                    text = newText
-                }
-            }
+        .onChange(of: ProcessManager.shared.outputLines) { _, lines in
+            text = lines.joined(separator: "\n")
         }
     }
 }
