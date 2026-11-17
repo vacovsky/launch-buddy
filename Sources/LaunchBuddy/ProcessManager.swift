@@ -25,6 +25,9 @@ final class ProcessManager {
     /// window consumes it so it can append only the delta to the text view
     /// instead of re-laying out the whole buffer on every chunk.
     @ObservationIgnored private var pendingOutput = ""
+    /// Parameters of the live run; the watchdog relaunches with them when
+    /// the script exits on its own.
+    @ObservationIgnored private var lastStart: (scriptPath: String, workingDirectory: String)?
 
     var running: Bool = false
     var launchError: String?
@@ -174,6 +177,15 @@ final class ProcessManager {
                 self.processGroupID = 0
                 if !self.userStopped {
                     self.lastExit = ExitInfo(reason: reason, status: status)
+                    // Watchdog: relaunch with the same parameters when the
+                    // script exits on its own and the user opted in. A
+                    // user stop (userStopped) or a disabled watchdog must
+                    // not respawn the run.
+                    if AppSettings().restartOnExit,
+                       let last = self.lastStart {
+                        self.start(scriptPath: last.scriptPath,
+                                   workingDirectory: last.workingDirectory)
+                    }
                 }
             }
         }
@@ -192,6 +204,7 @@ final class ProcessManager {
                 self.processGroupID = (actual > 0 && actual != getpgid(0)) ? actual : 0
             }
             self.process = proc
+            self.lastStart = (scriptPath, workingDirectory)
             self.running = true
             if self.processGroupID > 0 {
                 ScriptSignalGuard.groupPgid = self.processGroupID

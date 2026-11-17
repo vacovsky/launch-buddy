@@ -44,6 +44,8 @@ struct SettingsView: View {
                 }
 
                 Toggle("Restore script on launch", isOn: $settings.restoreOnLaunch)
+
+                Toggle("Restart script on exit", isOn: $settings.restartOnExit)
             }
         }
         .formStyle(.grouped)

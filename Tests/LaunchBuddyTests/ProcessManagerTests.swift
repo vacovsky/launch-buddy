@@ -349,4 +349,54 @@ final class ProcessManagerTests: XCTestCase {
         _ = await waitUntil { !pm.running }
     }
 
+    // MARK: - Watchdog
+
+    func test_restart_on_exit_relaunches_the_script() async throws {
+        var settings = AppSettings()
+        settings.restartOnExit = true
+        defer { settings.restartOnExit = false }
+
+        let script = try makeScript("""
+        #!/usr/bin/env python3
+        print("gen")
+        """, name: "watch.py")
+        let genBefore = pm.runID
+        pm.start(scriptPath: script)
+
+        // The first run exits on its own; the watchdog relaunches it with
+        // a fresh runID and the process alive again.
+        await assertStarted({ pm.runID == genBefore + 1 && pm.running },
+                           "watchdog did not relaunch the script")
+
+        // The relaunched run produces its own output.
+        await assertStarted({ pm.outputLines.contains("gen") },
+                           "relaunched run produced no output")
+
+        // A user stop must not be followed by another relaunch.
+        pm.stop()
+        _ = await waitUntil { !pm.running }
+        _ = await waitUntil(timeout: 3) { false }  // yield so a bogus restart could surface
+        XCTAssertFalse(pm.running, "user stop must suppress the watchdog")
+    }
+
+    func test_watchdog_disabled_by_default_does_not_relaunch() async throws {
+        var settings = AppSettings()
+        settings.restartOnExit = false
+
+        let script = try makeScript("""
+        #!/usr/bin/env python3
+        print("once")
+        """, name: "once.py")
+        let genBefore = pm.runID
+        pm.start(scriptPath: script)
+        await assertStarted({ pm.lastExit != nil }, "run never reported its exit")
+
+        _ = await waitUntil(timeout: 3) { false }  // yield for a bogus restart
+        XCTAssertEqual(pm.runID, genBefore + 1,
+                       "a clean exit with the watchdog off must not relaunch")
+        XCTAssertFalse(pm.running)
+
+        pm.stop()
+        _ = await waitUntil { !pm.running }
+    }
 }
