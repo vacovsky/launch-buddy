@@ -326,4 +326,27 @@ final class ProcessManagerTests: XCTestCase {
         pm.stop()
         _ = await waitUntil { !pm.running }
     }
+
+    // MARK: - End of stream
+
+    func test_eof_delivers_held_partial_utf8_tail() async throws {
+        // The stream ends mid-sequence (lone C3 lead after "ok"). The
+        // reader's terminal drain must surface that byte as a replacement
+        // character instead of losing it.
+        let script = try makeScript("""
+        #!/usr/bin/env python3
+        import sys
+        sys.stdout.buffer.write(b"ok\\xC3")
+        sys.stdout.buffer.flush()
+        """, name: "eoftail.py")
+        pm.start(scriptPath: script)
+        await assertStarted({ pm.lastExit != nil && pm.outputLines.last == "\u{FFFD}" },
+                           "terminal output tail was lost at EOF")
+        XCTAssertEqual(pm.outputLines, ["ok", "\u{FFFD}"])
+        XCTAssertEqual(pm.drainOutput(), "ok\u{FFFD}")
+
+        pm.stop()
+        _ = await waitUntil { !pm.running }
+    }
+
 }

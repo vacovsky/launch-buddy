@@ -214,13 +214,8 @@ final class ProcessManager {
                     n = read(fd, buf, 65536)
                 }
                 if n <= 0 {
-                    // EOF (or read error): deliver the decoder's held-back
-                    // partial tail, then stop; the cancel handler closes fd.
-                    if let tail = decoder.flush() {
-                        Task { @MainActor [weak self] in
-                            self?.ingest(tail, gen: gen)
-                        }
-                    }
+                    // EOF (or read error): the cancel handler drains what
+                    // remains and closes the read end.
                     source.cancel()
                     return
                 }
@@ -230,11 +225,37 @@ final class ProcessManager {
                     self?.ingest(text, gen: gen)
                 }
             }
-            // The cancel handler runs on the source's queue, after any
-            // in-flight event handler, so this cannot race a read.
-            // closeFile() releases ownership so the handle's deinit does not
-            // close the (possibly reused) descriptor a second time.
+            // The cancel handler runs on the source's queue after any
+            // in-flight event handler, so this drain cannot race a read.
+            // Collecting whatever is still in the pipe plus the decoder's
+            // held-back partial tail here means terminal output survives
+            // however the run ends: EOF, stop(), or killSync().
             source.setCancelHandler {
+                let buf = UnsafeMutablePointer<UInt8>.allocate(capacity: 65536)
+                defer { buf.deallocate() }
+                var n = read(fd, buf, 65536)
+                while n > 0 {
+                    if let text = decoder.decode(Data(UnsafeBufferPointer(start: buf, count: n))),
+                       !text.isEmpty {
+                        Task { @MainActor [weak self] in
+                            self?.ingest(text, gen: gen)
+                        }
+                    }
+                    n = read(fd, buf, 65536)
+                    while n < 0 && errno == EINTR {
+                        n = read(fd, buf, 65536)
+                    }
+                }
+                // The stream is over: surface the decoder's held-back
+                // partial tail (replacement characters) so a final partial
+                // character is not lost.
+                if let tail = decoder.flush() {
+                    Task { @MainActor [weak self] in
+                        self?.ingest(tail, gen: gen)
+                    }
+                }
+                // closeFile() releases ownership so the handle's deinit
+                // does not close a (possibly reused) descriptor twice.
                 readHandle.closeFile()
             }
             self.outputReadSource = source
