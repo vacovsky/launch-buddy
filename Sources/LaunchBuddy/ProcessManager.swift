@@ -1,4 +1,6 @@
 import Foundation
+import AppKit
+import UserNotifications
 import Darwin
 
 /// Owns the spawned script process and its captured output.
@@ -28,6 +30,10 @@ final class ProcessManager {
     /// Parameters of the live run; the watchdog relaunches with them when
     /// the script exits on its own.
     @ObservationIgnored private var lastStart: (scriptPath: String, workingDirectory: String)?
+    /// When the last unexpected-exit notification was posted; combined with
+    /// the cooldown below so a crash-looping script (especially under the
+    /// watchdog) cannot flood the Notification Center.
+    @ObservationIgnored private var lastExitNotificationAt: Date?
 
     var running: Bool = false
     var launchError: String?
@@ -43,6 +49,7 @@ final class ProcessManager {
     /// without bound while the output window is closed; the window
     /// re-initializes from `outputLines` when it opens anyway.
     private static let maxPendingOutputChars = 1_000_000
+    private static let exitNotificationCooldown: TimeInterval = 60
 
     /// Returns the text emitted since the last call and marks it drained.
     /// The output window consumes this so it appends only the delta to the
@@ -57,6 +64,30 @@ final class ProcessManager {
     func clearOutput() {
         outputLines = []
         pendingOutput = ""
+    }
+
+    /// Banner + system beep for an exit that was neither clean nor
+    /// user-caused, so an unattended crash is not silently swallowed.
+    /// Only active when running as an installed .app (the test runner has
+    /// no notification service), and rate-limited so a crash loop cannot
+    /// flood the Notification Center.
+    private func notifyUnexpectedExit(_ info: ExitInfo) {
+        guard Bundle.main.bundleURL.pathExtension == ".app" else { return }
+        let now = Date()
+        if let last = lastExitNotificationAt,
+           now.timeIntervalSince(last) < Self.exitNotificationCooldown {
+            return
+        }
+        lastExitNotificationAt = now
+        NSSound.beep()
+        let content = UNMutableNotificationContent()
+        content.title = "Launch Buddy"
+        content.body = info.summary
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: UUID().uuidString,
+                                            content: content,
+                                            trigger: nil)
+        UNUserNotificationCenter.current().add(request)
     }
 
     /// Folds newly decoded output into the buffers. Runs on the main actor;
@@ -176,7 +207,11 @@ final class ProcessManager {
                 self.process = nil
                 self.processGroupID = 0
                 if !self.userStopped {
-                    self.lastExit = ExitInfo(reason: reason, status: status)
+                    let info = ExitInfo(reason: reason, status: status)
+                    self.lastExit = info
+                    if !info.isClean {
+                        self.notifyUnexpectedExit(info)
+                    }
                     // Watchdog: relaunch with the same parameters when the
                     // script exits on its own and the user opted in. A
                     // user stop (userStopped) or a disabled watchdog must
@@ -243,7 +278,7 @@ final class ProcessManager {
             // Collecting whatever is still in the pipe plus the decoder's
             // held-back partial tail here means terminal output survives
             // however the run ends: EOF, stop(), or killSync().
-            source.setCancelHandler {
+            source.setCancelHandler { [weak self] in
                 let buf = UnsafeMutablePointer<UInt8>.allocate(capacity: 65536)
                 defer { buf.deallocate() }
                 var n = read(fd, buf, 65536)
