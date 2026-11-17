@@ -96,6 +96,36 @@ final class ProcessManagerTests: XCTestCase {
         _ = await waitUntil { !pm.running }
     }
 
+    func test_clear_output_resets_buffer_but_keeps_run_going() async throws {
+        // Python, not zsh: zsh block-buffers output on a pipe, so with a zsh
+        // script "before" would only arrive together with "after" at exit and
+        // the mid-run state could not be observed. Python prints are unbuffered
+        // (PYTHONUNBUFFERED is set by ProcessManager), so "before" really does
+        // stream in while the script is still sleeping.
+        let script = try makeScript("""
+        #!/usr/bin/env python3
+        import time
+        print("before", flush=True)
+        time.sleep(1)
+        print("after", flush=True)
+        """, name: "case.py")
+        pm.start(scriptPath: script)
+        await assertStarted({ pm.outputLines.contains("before") },
+                           "first output never arrived")
+
+        pm.clearOutput()
+        XCTAssertTrue(pm.running, "clearing output must not stop the script")
+        XCTAssertTrue(pm.outputLines.isEmpty)
+
+        await assertStarted({ pm.lastExit != nil }, "process never reported its exit")
+        XCTAssertEqual(pm.outputLines, ["after"],
+                       "output captured after a clear must be kept")
+        XCTAssertEqual(pm.drainOutput(), "after\n")
+
+        pm.stop()
+        _ = await waitUntil { !pm.running }
+    }
+
     // MARK: - Exit status
 
     func test_nonzero_exit_code_is_surfaced() async throws {

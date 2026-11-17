@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct OutputView: View {
     @Environment(\.dismiss) private var dismiss
@@ -35,6 +36,23 @@ struct OutputView: View {
                 .buttonStyle(.plain)
                 .help(pinned ? "Unpin to scroll freely" : "Pin to follow output")
 
+                Button {
+                    clearOutput()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear output")
+
+                Button {
+                    saveOutput()
+                } label: {
+                    Image(systemName: "square.and.arrow.down")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Save output to a file")
 
                 Button("Close") {
                     dismiss()
@@ -63,8 +81,13 @@ struct OutputView: View {
             renderedLineCount = ProcessManager.shared.outputLines.count
             append(ProcessManager.shared.drainOutput())
         }
-        // Same run, new output: append only the delta.
-        .onChange(of: ProcessManager.shared.outputLines) { _, _ in
+        // Same run, new output: append only the delta. If the buffer was
+        // cleared (or a run restarted) while showing content, reset first.
+        .onChange(of: ProcessManager.shared.outputLines) { _, lines in
+            if lines.isEmpty && !text.isEmpty {
+                text = ""
+                renderedLineCount = 0
+            }
             append(ProcessManager.shared.drainOutput())
         }
     }
@@ -107,5 +130,24 @@ struct OutputView: View {
         }
         text.removeSubrange(text.startIndex..<cut)
         renderedLineCount = max
+    }
+
+    /// Clears the view and the manager's buffer for the current run; the
+    /// running script continues and its new output is captured fresh.
+    private func clearOutput() {
+        ProcessManager.shared.clearOutput()
+        text = ""
+        renderedLineCount = 0
+    }
+
+    /// Writes the current view content to a user-chosen file.
+    private func saveOutput() {
+        guard !text.isEmpty else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "script-output.txt"
+        panel.canCreateDirectories = true
+        if panel.runModal() == .OK, let url = panel.url {
+            try? text.write(to: url, atomically: true, encoding: .utf8)
+        }
     }
 }

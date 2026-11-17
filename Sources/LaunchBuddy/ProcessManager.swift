@@ -49,6 +49,13 @@ final class ProcessManager {
         return pendingOutput
     }
 
+    /// Clears captured output for the current run; the script keeps running
+    /// and new output is captured into the fresh buffer.
+    func clearOutput() {
+        outputLines = []
+        pendingOutput = ""
+    }
+
     /// Folds newly decoded output into the buffers. Runs on the main actor;
     /// the pipe reader's queue hops here per chunk. `gen` drops late chunks
     /// from a superseded run.
