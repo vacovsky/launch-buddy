@@ -7,9 +7,15 @@ struct OutputView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: 8) {
                 Text("Script Output")
                     .font(.headline)
+
+                if let exit = ProcessManager.shared.lastExit {
+                    Text(exit.summary)
+                        .font(.caption)
+                        .foregroundStyle(exit.isClean ? Color.secondary : Color.red)
+                }
 
                 Spacer()
 

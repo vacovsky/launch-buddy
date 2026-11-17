@@ -15,23 +15,28 @@ final class ProcessManager {
     /// Bumped on every start; lets in-flight output chunks from a previous run
     /// drop out instead of contaminating the new run's buffer.
     @ObservationIgnored private var generation: UInt64 = 0
+    /// True between a user-initiated stop/kill and the next start; suppresses
+    /// the exit-status UI for stops we caused ourselves.
+    @ObservationIgnored private var userStopped = false
 
     var running: Bool = false
     var launchError: String?
     var outputLines: [String] = []
+    /// Info about the last run that ended on its own. nil while running,
+    /// after a user-initiated stop, and after a new start.
+    var lastExit: ExitInfo?
 
     private static let maxOutputLines = 1000
     private static let stdbufPath = "/usr/bin/stdbuf"
 
     private init() {}
-
-    // MARK: - Starting
-
     func start(scriptPath: String) {
         guard !running else { return }
 
         launchError = nil
         outputLines = []
+        lastExit = nil
+        userStopped = false
 
         guard !scriptPath.isEmpty else {
             launchError = "No script path configured"
@@ -101,16 +106,23 @@ final class ProcessManager {
             }
         }
 
-        proc.terminationHandler = { [weak self] _ in
+        proc.terminationHandler = { [weak self] p in
             pipe.fileHandleForReading.readabilityHandler = nil
+            // Read the exit details on the handler's thread, where they are
+            // guaranteed available, and hand them to the main actor.
+            let reason = p.terminationReason
+            let status = p.terminationStatus
             Task { @MainActor [weak self] in
                 // Only clear state if this is still the live process, so a late
                 // handler from an older run cannot clobber a newer start().
-                guard let self, self.process === proc else { return }
+                guard let self, self.process === p else { return }
                 self.running = false
                 self.process = nil
                 self.outputPipe = nil
                 self.processGroupID = 0
+                if !self.userStopped {
+                    self.lastExit = ExitInfo(reason: reason, status: status)
+                }
             }
         }
 
@@ -153,6 +165,7 @@ final class ProcessManager {
         outputPipe = nil
         processGroupID = 0
         running = false
+        userStopped = true
 
         guard let proc = proc else { return }
 
@@ -192,6 +205,7 @@ final class ProcessManager {
         outputPipe = nil
         processGroupID = 0
         running = false
+        userStopped = true
 
         if pgid > 0 {
             kill(-pgid, SIGKILL)
@@ -199,6 +213,21 @@ final class ProcessManager {
             kill(proc.processIdentifier, SIGKILL)
         }
         ScriptSignalGuard.groupPgid = 0
+    }
+}
+
+/// Why a script run ended, for surfacing in the UI.
+struct ExitInfo: Equatable {
+    let reason: Process.TerminationReason
+    let status: Int32
+
+    /// True when the script ran to completion with exit code 0.
+    var isClean: Bool { reason == .exit && status == 0 }
+
+    var summary: String {
+        reason == .exit
+            ? "Script exited (code \(status))"
+            : "Script killed by signal \(status)"
     }
 }
 

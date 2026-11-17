@@ -54,6 +54,12 @@ struct MenuBarControl: View {
                     .lineLimit(2)
             }
 
+            if !pm.running, let exit = pm.lastExit {
+                Text(exit.summary)
+                    .font(.caption2)
+                    .foregroundStyle(exit.isClean ? Color.secondary : Color.red)
+            }
+
             Divider()
 
             Button("View Output") {

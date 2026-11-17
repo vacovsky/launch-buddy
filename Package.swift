@@ -9,6 +9,10 @@ let package = Package(
         .executableTarget(
             name: "LaunchBuddy",
             exclude: ["Info.plist"]
+        ),
+        .testTarget(
+            name: "LaunchBuddyTests",
+            dependencies: ["LaunchBuddy"]
         )
     ]
 )
