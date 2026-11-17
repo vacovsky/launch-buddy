@@ -1,5 +1,6 @@
 import SwiftUI
 import ServiceManagement
+import AppKit
 
 struct SettingsView: View {
     @State private var settings = AppSettings()
@@ -16,6 +17,16 @@ struct SettingsView: View {
 
                     Button("Browse…") {
                         isShowingFilePicker = true
+                    }
+                }
+
+                HStack {
+                    TextField("Working directory (empty = script's directory)",
+                              text: $settings.workingDirectory)
+                        .textFieldStyle(.roundedBorder)
+
+                    Button("Browse…") {
+                        browseForDirectory()
                     }
                 }
             }
@@ -67,6 +78,18 @@ struct SettingsView: View {
         } catch {
             loginItemError = error.localizedDescription
             launchAtLogin = isRegisteredForLogin()
+        }
+    }
+
+    /// NSOpenPanel-based directory picker; SwiftUI's fileImporter cannot
+    /// select folders on macOS.
+    private func browseForDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            settings.workingDirectory = url.path
         }
     }
 }

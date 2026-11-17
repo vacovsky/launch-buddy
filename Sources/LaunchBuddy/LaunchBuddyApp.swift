@@ -6,7 +6,8 @@ class AppLifecycle: NSObject, NSApplicationDelegate {
         ScriptSignalGuard.install()
         let settings = AppSettings()
         if settings.restoreOnLaunch {
-            ProcessManager.shared.start(scriptPath: settings.scriptPath)
+            ProcessManager.shared.start(scriptPath: settings.scriptPath,
+                                        workingDirectory: settings.workingDirectory)
         }
     }
 

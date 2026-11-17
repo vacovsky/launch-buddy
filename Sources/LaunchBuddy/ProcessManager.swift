@@ -30,7 +30,8 @@ final class ProcessManager {
     private static let stdbufPath = "/usr/bin/stdbuf"
 
     private init() {}
-    func start(scriptPath: String) {
+    func start(scriptPath: String,
+              workingDirectory: String = "") {
         guard !running else { return }
 
         launchError = nil
@@ -59,6 +60,20 @@ final class ProcessManager {
             return
         }
 
+        // Empty working directory means "the script's own directory" — the
+        // most common expectation for relative paths, and unlike the bundle's
+        // launch cwd (/) it actually exists.
+        var isDirectory: ObjCBool = false
+        let cwdPath = workingDirectory.isEmpty
+            ? (URL(fileURLWithPath: scriptPath).deletingLastPathComponent())
+            : URL(fileURLWithPath: workingDirectory)
+        if !workingDirectory.isEmpty,
+           !FileManager.default.fileExists(atPath: cwdPath.path, isDirectory: &isDirectory)
+            || !isDirectory.boolValue {
+            launchError = "Working directory not found: \(workingDirectory)"
+            return
+        }
+
         let proc = Process()
         let pipe = Pipe()
 
@@ -73,6 +88,7 @@ final class ProcessManager {
         env["PYTHONUNBUFFERED"] = "1"
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         proc.environment = env
+        proc.currentDirectoryURL = cwdPath
 
         if hasStdbuf {
             proc.executableURL = URL(fileURLWithPath: Self.stdbufPath)
@@ -98,7 +114,13 @@ final class ProcessManager {
             Task { @MainActor [weak self] in
                 guard let self, self.generation == gen else { return }
                 var lines = self.outputLines
-                lines.append(contentsOf: text.components(separatedBy: .newlines))
+                // "abc\n" splits into ["abc", ""]; drop the phantom empty
+                // element so the buffer does not end with a ghost line.
+                var newLines = text.components(separatedBy: .newlines)
+                if newLines.last == "" {
+                    newLines.removeLast()
+                }
+                lines.append(contentsOf: newLines)
                 if lines.count > Self.maxOutputLines {
                     lines = Array(lines.suffix(Self.maxOutputLines))
                 }

@@ -54,7 +54,8 @@ final class ProcessManagerTests: XCTestCase {
         proc.standardError = pipe
         try? proc.run()
         proc.waitUntilExit()
-        return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return (String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "")
+            .trimmingCharacters(in: .newlines)
     }
 
     // MARK: - Exit status
@@ -167,5 +168,74 @@ final class ProcessManagerTests: XCTestCase {
         let survivors = shell("pgrep -f 'sleep \(marker)'")
         XCTAssertTrue(survivors.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                       "child processes survived stop(): \(survivors)")
+    }
+
+    // MARK: - Working directory
+
+    func test_default_cwd_is_the_scripts_directory() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lbcwd-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let script = dir.appendingPathComponent("cwd.sh")
+        // pwd -P reports the physical path, so the comparison below is
+        // immune to macOS hiding /var behind /private/var.
+        try ("#!/bin/zsh\npwd -P").write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+
+        pm.start(scriptPath: script.path)
+        await assertStarted({ pm.lastExit != nil }, "process never reported its exit")
+
+        // Compare physical paths on both sides.
+        let reported = pm.outputLines.last ?? ""
+        let expected = shell("cd \(dir.path) && pwd -P")
+        XCTAssertEqual(reported, expected,
+                       "default working directory must be the script's own directory")
+
+        pm.stop()
+        _ = await waitUntil { !pm.running }
+    }
+
+    func test_explicit_working_directory_is_used() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lbcwd-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        // A relative file that only resolves from the explicit cwd.
+        try "payload".write(to: dir.appendingPathComponent("note.txt"), atomically: true, encoding: .utf8)
+        let script = try makeScript("#!/bin/zsh\ncat note.txt\n")
+
+        pm.start(scriptPath: script, workingDirectory: dir.path)
+        await assertStarted({ pm.lastExit != nil }, "process never reported its exit")
+
+        XCTAssertEqual(pm.outputLines.last, "payload",
+                       "relative path must resolve against the configured working directory")
+        pm.stop()
+        _ = await waitUntil { !pm.running }
+    }
+
+    func test_missing_working_directory_fails_cleanly() async throws {
+        let script = try makeScript("#!/bin/zsh\ntrue\n")
+
+        pm.start(scriptPath: script, workingDirectory: "/no/such/dir-lbtest")
+
+        XCTAssertFalse(pm.running)
+        XCTAssertEqual(pm.launchError, "Working directory not found: /no/such/dir-lbtest")
+    }
+
+    // MARK: - Output buffer
+
+    func test_output_buffer_has_no_trailing_empty_line() async throws {
+        let script = try makeScript("""
+        #!/bin/zsh
+        echo "one"
+        echo "two"
+        """)
+        pm.start(scriptPath: script)
+        await assertStarted({ pm.lastExit != nil }, "process never reported its exit")
+
+        XCTAssertEqual(pm.outputLines, ["one", "two"],
+                       "a trailing newline must not leave a phantom empty line")
+        XCTAssertFalse(pm.outputLines.last?.isEmpty ?? true)
+        pm.stop()
+        _ = await waitUntil { !pm.running }
     }
 }
