@@ -362,36 +362,61 @@ private func scriptSignalHandler(_ signal: Int32) {
 /// across pipe reads are never corrupted. Callers must be serial.
 /// - Note: touched only from the (serial) pipe reader source's queue, so it
 /// is safe to share across the reader's dispatches.
-private final class UTF8StreamDecoder: @unchecked Sendable {
+final class UTF8StreamDecoder: @unchecked Sendable {
     private var pending = Data()
 
     /// Appends `data` to the buffer and returns the newly decodable text, or
     /// nil if nothing new was decodable.
     func decode(_ data: Data) -> String? {
         pending.append(data)
+        guard !pending.isEmpty else { return nil }
 
-        // A buffer that fails to decode does so only because of (a) an
-        // incomplete sequence at the tail (at most 3 held-back bytes) or
-        // (b) genuinely invalid bytes. For (a): drop tail bytes until the
-        // prefix decodes.
-        for drop in 0...3 {
-            let end = pending.index(pending.endIndex, offsetBy: -min(drop, pending.count))
-            guard end > pending.startIndex else { continue }
-            if let text = String(data: pending.prefix(upTo: end), encoding: .utf8) {
-                if end == pending.endIndex {
-                    pending.removeAll(keepingCapacity: true)
-                } else {
-                    pending = Data(pending.suffix(from: end))
-                }
-                return text
-            }
+        if let text = String(data: pending, encoding: .utf8) {
+            pending.removeAll(keepingCapacity: true)
+            return text
         }
 
-        // (b): non-UTF-8 output — decode with replacement characters so
-        // nothing is lost.
+        // The buffer is not valid UTF-8. If it ends with a partial
+        // multi-byte sequence, hold those tail bytes for the next chunk;
+        // everything before them is decoded now (invalid bytes in the
+        // prefix become replacement characters).
+        if let tail = partialTailLength(of: pending) {
+            let end = pending.index(pending.endIndex, offsetBy: -tail)
+            let prefix = pending.prefix(upTo: end)
+            pending = Data(pending.suffix(from: end))
+            guard !prefix.isEmpty else { return nil }
+            return String(decoding: prefix, as: UTF8.self)
+        }
+
+        // No held-back tail: the buffer is invalid as a whole.
         let text = String(decoding: pending, as: UTF8.self)
         pending.removeAll(keepingCapacity: true)
-        return text.isEmpty ? nil : text
+        return text
+    }
+
+    /// Length (1–3) of the trailing bytes of `buffer` that form a valid
+    /// prefix of a multi-byte sequence still awaiting continuation bytes,
+    /// or nil when the buffer does not end in one. Only lead bytes can
+    /// start a held-back sequence; a bare continuation byte is invalid,
+    /// not partial.
+    private func partialTailLength(of buffer: Data) -> Int? {
+        let bytes = [UInt8](buffer)
+        for back in 0..<min(3, bytes.count) {
+            let i = bytes.count - 1 - back
+            let required: Int
+            switch bytes[i] {
+            case 0xC2...0xDF: required = 2
+            case 0xE0...0xEF: required = 3
+            case 0xF0...0xF4: required = 4
+            default: continue
+            }
+            let have = bytes.count - i
+            guard have < required,
+                  bytes[(i + 1)...].allSatisfy({ $0 & 0xC0 == 0x80 })
+            else { continue }
+            return have
+        }
+        return nil
     }
 
     /// Decodes any held-back partial sequence (with replacement characters)

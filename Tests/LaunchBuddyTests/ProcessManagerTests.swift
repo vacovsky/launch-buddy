@@ -306,4 +306,24 @@ final class ProcessManagerTests: XCTestCase {
         pm.stop()
         _ = await waitUntil { !pm.running }
     }
+
+    func test_output_buffer_caps_at_max_lines_keeps_suffix() async throws {
+        // 1500 lines in; the buffer must keep exactly the last
+        // ProcessManager.maxOutputLines of them, dropping the oldest.
+        let script = try makeScript("""
+        #!/usr/bin/env python3
+        import sys
+        out = [f"line-{i}" for i in range(1, 1501)]
+        sys.stdout.write("\\n".join(out) + "\\n")
+        sys.stdout.flush()
+        """, name: "cap.py")
+        pm.start(scriptPath: script)
+        await assertStarted({ pm.lastExit != nil }, "process never reported its exit")
+        XCTAssertEqual(pm.outputLines.count, ProcessManager.maxOutputLines)
+        XCTAssertEqual(pm.outputLines.first, "line-501")
+        XCTAssertEqual(pm.outputLines.last, "line-1500")
+
+        pm.stop()
+        _ = await waitUntil { !pm.running }
+    }
 }
