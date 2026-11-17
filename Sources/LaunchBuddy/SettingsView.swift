@@ -7,17 +7,27 @@ struct SettingsView: View {
     @State private var isShowingFilePicker = false
     @State private var launchAtLogin = false
     @State private var loginItemError: String?
+    @State private var scriptPathError: String?
 
     var body: some View {
         Form {
             Section("Script") {
                 HStack {
                     TextField("Script path", text: $settings.scriptPath)
-                        .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: settings.scriptPath) { _, _ in
+                        validateScriptPath()
+                    }
 
                     Button("Browse…") {
                         isShowingFilePicker = true
                     }
+                }
+
+                if let scriptPathError {
+                    Text(scriptPathError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
                 }
 
                 HStack {
@@ -52,6 +62,7 @@ struct SettingsView: View {
         .padding(4)
         .onAppear {
             launchAtLogin = isRegisteredForLogin()
+            validateScriptPath()
         }
         .fileImporter(
             isPresented: $isShowingFilePicker,
@@ -93,5 +104,12 @@ struct SettingsView: View {
         if panel.runModal() == .OK, let url = panel.url {
             settings.workingDirectory = url.path
         }
+    }
+
+    /// Recomputes the inline error for the configured script path. Called as
+    /// the field changes (typing or Browse) and when the window opens, so a
+    /// path deleted since the last session is flagged immediately.
+    private func validateScriptPath() {
+        scriptPathError = AppSettings.scriptPathProblem(settings.scriptPath)
     }
 }

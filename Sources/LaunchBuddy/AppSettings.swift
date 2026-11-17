@@ -45,4 +45,14 @@ struct AppSettings {
             UserDefaults.standard.set(newValue, forKey: restartOnExitKey)
         }
     }
+
+    /// Inline problem for the script-path field: an unset path (empty) is
+    /// fine, and a path that exists is fine even if not executable
+    /// (start() chmods it); only a missing file is an error.
+    static func scriptPathProblem(_ path: String) -> String? {
+        guard !path.isEmpty else { return nil }
+        return FileManager.default.fileExists(atPath: path)
+            ? nil
+            : "File not found: \(path)"
+    }
 }
