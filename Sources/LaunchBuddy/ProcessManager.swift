@@ -10,14 +10,21 @@ final class ProcessManager {
     static let shared = ProcessManager()
 
     @ObservationIgnored private var process: Process?
-    @ObservationIgnored private var outputPipe: Pipe?
+    /// Drains the output pipe; kept so stop/kill/termination can cancel it,
+    /// which also closes the pipe's read end.
+    @ObservationIgnored private var outputReadSource: DispatchSourceRead?
     @ObservationIgnored private var processGroupID: pid_t = 0
-    /// Bumped on every start; lets in-flight output chunks from a previous run
+    /// Bumped on every start; observable so the output window can detect a
+    /// new run. In-flight chunks from a previous run compare against it and
     /// drop out instead of contaminating the new run's buffer.
-    @ObservationIgnored private var generation: UInt64 = 0
+    private(set) var runID: UInt64 = 0
     /// True between a user-initiated stop/kill and the next start; suppresses
     /// the exit-status UI for stops we caused ourselves.
     @ObservationIgnored private var userStopped = false
+    /// Output text appended since the last `drainOutput()`; the output
+    /// window consumes it so it can append only the delta to the text view
+    /// instead of re-laying out the whole buffer on every chunk.
+    @ObservationIgnored private var pendingOutput = ""
 
     var running: Bool = false
     var launchError: String?
@@ -26,8 +33,44 @@ final class ProcessManager {
     /// after a user-initiated stop, and after a new start.
     var lastExit: ExitInfo?
 
-    private static let maxOutputLines = 1000
+    /// Lines kept in `outputLines` (and mirrored by the output window).
+    static let maxOutputLines = 1000
     private static let stdbufPath = "/usr/bin/stdbuf"
+    /// Cap for undrained output text, so a chatty script cannot grow it
+    /// without bound while the output window is closed; the window
+    /// re-initializes from `outputLines` when it opens anyway.
+    private static let maxPendingOutputChars = 1_000_000
+
+    /// Returns the text emitted since the last call and marks it drained.
+    /// The output window consumes this so it appends only the delta to the
+    /// text view instead of re-laying out the whole buffer.
+    func drainOutput() -> String {
+        defer { pendingOutput = "" }
+        return pendingOutput
+    }
+
+    /// Folds newly decoded output into the buffers. Runs on the main actor;
+    /// the pipe reader's queue hops here per chunk. `gen` drops late chunks
+    /// from a superseded run.
+    private func ingest(_ text: String, gen: UInt64) {
+        guard runID == gen else { return }
+        pendingOutput += text
+        if pendingOutput.count > Self.maxPendingOutputChars {
+            pendingOutput = ""
+        }
+        var lines = outputLines
+        // "abc\n" splits into ["abc", ""]; drop the phantom empty element so
+        // the buffer does not end with a ghost line.
+        var newLines = text.components(separatedBy: .newlines)
+        if newLines.last == "" {
+            newLines.removeLast()
+        }
+        lines.append(contentsOf: newLines)
+        if lines.count > Self.maxOutputLines {
+            lines = Array(lines.suffix(Self.maxOutputLines))
+        }
+        outputLines = lines
+    }
 
     private init() {}
     func start(scriptPath: String,
@@ -38,6 +81,7 @@ final class ProcessManager {
         outputLines = []
         lastExit = nil
         userStopped = false
+        pendingOutput = ""
 
         guard !scriptPath.isEmpty else {
             launchError = "No script path configured"
@@ -104,32 +148,10 @@ final class ProcessManager {
         proc.standardError = pipe
 
         let decoder = UTF8StreamDecoder()
-        generation &+= 1
-        let gen = generation
-
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            guard let data = try? handle.read(upToCount: 65536),
-                  !data.isEmpty,
-                  let text = decoder.decode(data) else { return }
-            Task { @MainActor [weak self] in
-                guard let self, self.generation == gen else { return }
-                var lines = self.outputLines
-                // "abc\n" splits into ["abc", ""]; drop the phantom empty
-                // element so the buffer does not end with a ghost line.
-                var newLines = text.components(separatedBy: .newlines)
-                if newLines.last == "" {
-                    newLines.removeLast()
-                }
-                lines.append(contentsOf: newLines)
-                if lines.count > Self.maxOutputLines {
-                    lines = Array(lines.suffix(Self.maxOutputLines))
-                }
-                self.outputLines = lines
-            }
-        }
+        runID &+= 1
+        let gen = runID
 
         proc.terminationHandler = { [weak self] p in
-            pipe.fileHandleForReading.readabilityHandler = nil
             // Read the exit details on the handler's thread, where they are
             // guaranteed available, and hand them to the main actor.
             let reason = p.terminationReason
@@ -138,9 +160,10 @@ final class ProcessManager {
                 // Only clear state if this is still the live process, so a late
                 // handler from an older run cannot clobber a newer start().
                 guard let self, self.process === p else { return }
+                self.outputReadSource?.cancel()
+                self.outputReadSource = nil
                 self.running = false
                 self.process = nil
-                self.outputPipe = nil
                 self.processGroupID = 0
                 if !self.userStopped {
                     self.lastExit = ExitInfo(reason: reason, status: status)
@@ -162,13 +185,59 @@ final class ProcessManager {
                 self.processGroupID = (actual > 0 && actual != getpgid(0)) ? actual : 0
             }
             self.process = proc
-            self.outputPipe = pipe
             self.running = true
             if self.processGroupID > 0 {
                 ScriptSignalGuard.groupPgid = self.processGroupID
             }
+
+            // Recent macOS only reports the pipe as readable at EOF: writes
+            // made while the child is alive surface as one burst when it
+            // exits. A DispatchSourceRead on a background queue reads the
+            // pipe directly, so every write arrives as it happens.
+            let readHandle = pipe.fileHandleForReading
+            let fd = readHandle.fileDescriptor
+            let source = DispatchSource.makeReadSource(
+                fileDescriptor: fd,
+                queue: DispatchQueue(label: "launchbuddy.script-output"))
+            source.setEventHandler { [weak self] in
+                let buf = UnsafeMutablePointer<UInt8>.allocate(capacity: 65536)
+                defer { buf.deallocate() }
+                var n = read(fd, buf, 65536)
+                while n < 0 && errno == EINTR {
+                    n = read(fd, buf, 65536)
+                }
+                if n <= 0 {
+                    // EOF (or read error): deliver the decoder's held-back
+                    // partial tail, then stop; the cancel handler closes fd.
+                    if let tail = decoder.flush() {
+                        Task { @MainActor [weak self] in
+                            self?.ingest(tail, gen: gen)
+                        }
+                    }
+                    source.cancel()
+                    return
+                }
+                guard let text = decoder.decode(Data(UnsafeBufferPointer(start: buf, count: n))),
+                      !text.isEmpty else { return }
+                Task { @MainActor [weak self] in
+                    self?.ingest(text, gen: gen)
+                }
+            }
+            // The cancel handler runs on the source's queue, after any
+            // in-flight event handler, so this cannot race a read.
+            // closeFile() releases ownership so the handle's deinit does not
+            // close the (possibly reused) descriptor a second time.
+            source.setCancelHandler {
+                readHandle.closeFile()
+            }
+            self.outputReadSource = source
+            source.activate()
         } catch {
             let nsError = error as NSError
+            // The launch failed before the reader source existed, so release
+            // the pipe ends ourselves; they would otherwise leak.
+            pipe.fileHandleForReading.closeFile()
+            pipe.fileHandleForWriting.closeFile()
             launchError = "Failed to launch: \(nsError.localizedDescription) (code: \(nsError.code))"
         }
     }
@@ -178,13 +247,13 @@ final class ProcessManager {
     /// Graceful stop: SIGTERM to the process group, SIGKILL after a short grace
     /// period for anything that survives.
     func stop() {
-        outputPipe?.fileHandleForReading.readabilityHandler = nil
+        outputReadSource?.cancel()
 
         let pgid = processGroupID
         let proc = process
 
         process = nil
-        outputPipe = nil
+        outputReadSource = nil
         processGroupID = 0
         running = false
         userStopped = true
@@ -218,13 +287,13 @@ final class ProcessManager {
     /// Synchronous kill for app termination, when there is no time for the
     /// TERM→KILL escalation.
     func killSync() {
-        outputPipe?.fileHandleForReading.readabilityHandler = nil
+        outputReadSource?.cancel()
 
         let pgid = processGroupID
         let proc = process
 
         process = nil
-        outputPipe = nil
+        outputReadSource = nil
         processGroupID = 0
         running = false
         userStopped = true
@@ -284,8 +353,8 @@ private func scriptSignalHandler(_ signal: Int32) {
 /// Decodes an unbounded byte stream as UTF-8, holding back a trailing partial
 /// multi-byte sequence until the next chunk completes it, so code points split
 /// across pipe reads are never corrupted. Callers must be serial.
-/// - Note: touched only from the (serial) pipe readability-handler queue, so
-/// it is safe to share across the handler's dispatches.
+/// - Note: touched only from the (serial) pipe reader source's queue, so it
+/// is safe to share across the reader's dispatches.
 private final class UTF8StreamDecoder: @unchecked Sendable {
     private var pending = Data()
 
@@ -316,5 +385,14 @@ private final class UTF8StreamDecoder: @unchecked Sendable {
         let text = String(decoding: pending, as: UTF8.self)
         pending.removeAll(keepingCapacity: true)
         return text.isEmpty ? nil : text
+    }
+
+    /// Decodes any held-back partial sequence (with replacement characters)
+    /// and empties the buffer. Call once when the stream ends so the tail
+    /// bytes are not lost.
+    func flush() -> String? {
+        defer { pending.removeAll(keepingCapacity: true) }
+        guard !pending.isEmpty else { return nil }
+        return String(decoding: pending, as: UTF8.self)
     }
 }

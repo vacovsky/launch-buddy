@@ -58,6 +58,44 @@ final class ProcessManagerTests: XCTestCase {
             .trimmingCharacters(in: .newlines)
     }
 
+    // MARK: - Incremental drain
+
+    func test_drain_returns_emitted_text_then_clears() async throws {
+        let script = try makeScript("""
+        #!/bin/zsh
+        echo one
+        echo two
+        """)
+        let before = pm.runID
+        pm.start(scriptPath: script)
+        XCTAssertNotEqual(pm.runID, before, "each start must bump the run id")
+        await assertStarted({ pm.lastExit != nil }, "process never reported its exit")
+
+        let drained = pm.drainOutput()
+        XCTAssertEqual(drained, "one\ntwo\n",
+                       "drain must return everything emitted since the last drain")
+        XCTAssertEqual(pm.drainOutput(), "", "drain must clear the buffer")
+
+        pm.stop()
+        _ = await waitUntil { !pm.running }
+    }
+
+    func test_start_clears_undrained_output() async throws {
+        let first = try makeScript("#!/bin/zsh\necho first\n")
+        pm.start(scriptPath: first)
+        await assertStarted({ pm.lastExit != nil }, "process never reported its exit")
+        _ = pm.drainOutput()
+
+        let second = try makeScript("#!/bin/zsh\necho second\n")
+        pm.start(scriptPath: second)
+        await assertStarted({ pm.lastExit != nil }, "process never reported its exit")
+
+        XCTAssertEqual(pm.drainOutput(), "second\n",
+                       "a new run must not surface the previous run's output")
+        pm.stop()
+        _ = await waitUntil { !pm.running }
+    }
+
     // MARK: - Exit status
 
     func test_nonzero_exit_code_is_surfaced() async throws {

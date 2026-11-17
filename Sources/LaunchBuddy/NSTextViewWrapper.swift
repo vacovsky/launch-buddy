@@ -31,11 +31,35 @@ struct NSTextViewWrapper: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
-        guard let textView = nsView.documentView as? NSTextView,
-              textView.string != text else { return }
+        guard let textView = nsView.documentView as? NSTextView else { return }
+        let old = textView.string
+        guard old != text else { return }
 
         let offset = nsView.contentView.bounds.origin
-        textView.string = text
+
+        if text.hasPrefix(old) {
+            // Common case: new output appended to the end. Grow the text
+            // storage in place so the existing lines keep their layout.
+            // (Computed in UTF-16 units: NSRange and NSString.length are
+            // UTF-16, so a grapheme-count drop would corrupt emoji output.)
+            let oldUTF16 = (old as NSString).length
+            let suffix = String(decoding: Array(text.utf16).dropFirst(oldUTF16),
+                                as: UTF16.self)
+            textView.textStorage?.replaceCharacters(
+                in: NSRange(location: oldUTF16, length: 0),
+                with: suffix)
+        } else if old.hasSuffix(text) {
+            // Scrollback trim: oldest lines were dropped from the front.
+            // Remove the prefix in place instead of replacing everything.
+            let dropLength = (old as NSString).length - (text as NSString).length
+            textView.textStorage?.replaceCharacters(
+                in: NSRange(location: 0, length: dropLength),
+                with: "")
+        } else {
+            // New run or unexpected change: full replacement.
+            textView.string = text
+        }
+
         if pinned {
             textView.scrollToEndOfDocument(nil)
         } else {
