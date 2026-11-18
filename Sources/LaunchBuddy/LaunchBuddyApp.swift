@@ -7,7 +7,9 @@ class AppLifecycle: NSObject, NSApplicationDelegate {
         let settings = AppSettings()
         if settings.restoreOnLaunch {
             ProcessManager.shared.start(scriptPath: settings.scriptPath,
-                                        workingDirectory: settings.workingDirectory)
+                                        workingDirectory: settings.workingDirectory,
+                                        arguments: settings.scriptArguments,
+                                        environment: settings.extraEnvironment)
         }
     }
 

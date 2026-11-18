@@ -29,7 +29,11 @@ final class ProcessManager {
     @ObservationIgnored private var pendingOutput = ""
     /// Parameters of the live run; the watchdog relaunches with them when
     /// the script exits on its own.
-    @ObservationIgnored private var lastStart: (scriptPath: String, workingDirectory: String)?
+    @ObservationIgnored private var lastStart: (scriptPath: String,
+                                                workingDirectory: String,
+                                                arguments: String,
+                                                environment: String)?
+
     /// When the last unexpected-exit notification was posted; combined with
     /// the cooldown below so a crash-looping script (especially under the
     /// watchdog) cannot flood the Notification Center.
@@ -115,7 +119,9 @@ final class ProcessManager {
 
     private init() {}
     func start(scriptPath: String,
-              workingDirectory: String = "") {
+              workingDirectory: String = "",
+              arguments: String = "",
+              environment: String = "") {
         guard !running else { return }
 
         launchError = nil
@@ -172,17 +178,25 @@ final class ProcessManager {
         var env = ProcessInfo.processInfo.environment
         env["PYTHONUNBUFFERED"] = "1"
         env["PYTHONDONTWRITEBYTECODE"] = "1"
+        // User-configured variables merge over the defaults, so they can
+        // override them (e.g. PYTHONUNBUFFERED=0).
+        for (key, value) in Self.parseEnvironment(environment) {
+            env[key] = value
+        }
         proc.environment = env
         proc.currentDirectoryURL = cwdPath
+        let args = Self.tokenizeArguments(arguments)
 
         if hasStdbuf {
             proc.executableURL = URL(fileURLWithPath: Self.stdbufPath)
-            proc.arguments = isShellScript
+            // Script arguments follow the script path: zsh hands them to the
+            // shell script as $@, interpreters see them in argv.
+            proc.arguments = (isShellScript
                 ? ["-o0", "-e0", "/bin/zsh", scriptPath]
-                : ["-o0", "-e0", scriptPath]
+                : ["-o0", "-e0", scriptPath]) + args
         } else {
             proc.executableURL = URL(fileURLWithPath: isShellScript ? "/bin/zsh" : scriptPath)
-            proc.arguments = isShellScript ? [scriptPath] : []
+            proc.arguments = (isShellScript ? [scriptPath] : []) + args
         }
 
         proc.standardOutput = pipe
@@ -219,7 +233,9 @@ final class ProcessManager {
                     if AppSettings().restartOnExit,
                        let last = self.lastStart {
                         self.start(scriptPath: last.scriptPath,
-                                   workingDirectory: last.workingDirectory)
+                                   workingDirectory: last.workingDirectory,
+                                   arguments: last.arguments,
+                                   environment: last.environment)
                     }
                 }
             }
@@ -239,7 +255,7 @@ final class ProcessManager {
                 self.processGroupID = (actual > 0 && actual != getpgid(0)) ? actual : 0
             }
             self.process = proc
-            self.lastStart = (scriptPath, workingDirectory)
+            self.lastStart = (scriptPath, workingDirectory, arguments, environment)
             self.running = true
             if self.processGroupID > 0 {
                 ScriptSignalGuard.groupPgid = self.processGroupID
@@ -380,6 +396,58 @@ final class ProcessManager {
             kill(proc.processIdentifier, SIGKILL)
         }
         ScriptSignalGuard.groupPgid = 0
+    }
+
+    // MARK: - Argument / environment parsing
+
+    /// Splits a whitespace-separated argument string into discrete arguments,
+    /// honoring double quotes so `one "two words" three` yields
+    /// `["one", "two words", "three"]`. An unbalanced quote ends the quoted
+    /// region at end of input rather than swallowing the remainder.
+    static func tokenizeArguments(_ input: String) -> [String] {
+        var args: [String] = []
+        var current = ""
+        var inQuotes = false
+        var hasToken = false
+
+        for scalar in input.unicodeScalars {
+            if scalar == "\"" {
+                inQuotes.toggle()
+                hasToken = true
+            } else if scalar.properties.isWhitespace && !inQuotes {
+                if hasToken || !current.isEmpty {
+                    args.append(current)
+                    current = ""
+                    hasToken = false
+                }
+            } else {
+                current.unicodeScalars.append(scalar)
+                hasToken = true
+            }
+        }
+        if hasToken || !current.isEmpty {
+            args.append(current)
+        }
+        return args
+    }
+
+    /// Parses `KEY=VALUE` environment lines. Blank lines are skipped; a line
+    /// without `=` is ignored. The first `=` is the delimiter so values may
+    /// contain further `=`. Returns key/value pairs in input order.
+    static func parseEnvironment(_ input: String) -> [(String, String)] {
+        var pairs: [(String, String)] = []
+        for line in input.split(separator: "\n", omittingEmptySubsequences: true) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+            guard let eq = trimmed.firstIndex(of: "="),
+                  trimmed.index(trimmed.startIndex, offsetBy: 0) < eq
+            else { continue }
+            let key = String(trimmed[..<eq]).trimmingCharacters(in: .whitespaces)
+            let value = String(trimmed[trimmed.index(after: eq)...])
+            guard !key.isEmpty else { continue }
+            pairs.append((key, value))
+        }
+        return pairs
     }
 }
 

@@ -6,6 +6,8 @@ struct AppSettings {
     private let restoreOnLaunchKey = "restoreOnLaunch"
     private let workingDirectoryKey = "workingDirectory"
     private let restartOnExitKey = "restartOnExit"
+    private let scriptArgumentsKey = "scriptArguments"
+    private let extraEnvironmentKey = "extraEnvironment"
 
     var scriptPath: String {
         get {
@@ -43,6 +45,29 @@ struct AppSettings {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: restartOnExitKey)
+        }
+    }
+
+    /// Arguments passed to the script, whitespace-separated. Quotes are
+    /// honored so `one "two words" three` becomes three arguments.
+    var scriptArguments: String {
+        get {
+            UserDefaults.standard.string(forKey: scriptArgumentsKey) ?? ""
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: scriptArgumentsKey)
+        }
+    }
+
+    /// Extra environment for the script, one `KEY=VALUE` per line. Merged
+    /// over the inherited environment (and over the interpreter unbuffering
+    /// hints) so a line like `PYTHONUNBUFFERED=0` can override a default.
+    var extraEnvironment: String {
+        get {
+            UserDefaults.standard.string(forKey: extraEnvironmentKey) ?? ""
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: extraEnvironmentKey)
         }
     }
 

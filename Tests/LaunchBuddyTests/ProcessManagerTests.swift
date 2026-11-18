@@ -399,4 +399,65 @@ final class ProcessManagerTests: XCTestCase {
         pm.stop()
         _ = await waitUntil { !pm.running }
     }
+    // MARK: - Arguments and environment
+
+    func test_tokenize_arguments_plain_words() {
+        XCTAssertEqual(ProcessManager.tokenizeArguments(""), [])
+        XCTAssertEqual(ProcessManager.tokenizeArguments("  one   two "), ["one", "two"])
+    }
+
+    func test_tokenize_arguments_honors_quotes() {
+        XCTAssertEqual(ProcessManager.tokenizeArguments("one \"two words\" three"),
+                       ["one", "two words", "three"])
+        XCTAssertEqual(ProcessManager.tokenizeArguments("\"\""), [""])
+    }
+
+    func test_tokenize_arguments_unbalanced_quote_ends_at_input_end() {
+        XCTAssertEqual(ProcessManager.tokenizeArguments("a \"bc"), ["a", "bc"])
+    }
+
+    func test_parse_environment_lines() {
+        let pairs = ProcessManager.parseEnvironment("A=1\n\n  B=two words  \nC=x=y")
+        XCTAssertEqual(pairs.map { $0.0 }, ["A", "B", "C"])
+        XCTAssertEqual(pairs.map { $0.1 }, ["1", "two words", "x=y"])
+    }
+
+    func test_parse_environment_skips_malformed_lines() {
+        let pairs = ProcessManager.parseEnvironment("no-equals\n=orphan\n\nA=1")
+        XCTAssertEqual(pairs.map { $0.0 }, ["A"])
+        XCTAssertEqual(pairs.map { $0.1 }, ["1"])
+    }
+
+    func test_script_arguments_reach_the_child() async throws {
+        let script = try makeScript("""
+        #!/usr/bin/env python3
+        import sys
+        print("args=" + ",".join(sys.argv[1:]))
+        """, name: "args.py")
+        pm.start(scriptPath: script, arguments: "one \"two words\"")
+        await assertStarted({ pm.lastExit != nil }, "run never reported its exit")
+        XCTAssertEqual(pm.outputLines, ["args=one,two words"])
+
+        pm.stop()
+        _ = await waitUntil { !pm.running }
+    }
+
+    func test_extra_environment_is_merged_and_overridable() async throws {
+        let script = try makeScript("""
+        #!/usr/bin/env python3
+        import os
+        print("custom=" + os.environ.get("LB_TEST_VAR", "unset"))
+        print("unbuffered=" + os.environ.get("PYTHONUNBUFFERED", "unset"))
+        """, name: "env.py")
+        // The user's line also overrides the interpreter default set by
+        // start(): PYTHONUNBUFFERED must end up "0", not "1".
+        pm.start(scriptPath: script,
+                 environment: "LB_TEST_VAR=hello\nPYTHONUNBUFFERED=0")
+        await assertStarted({ pm.lastExit != nil }, "run never reported its exit")
+        XCTAssertEqual(pm.outputLines, ["custom=hello", "unbuffered=0"])
+
+        pm.stop()
+        _ = await waitUntil { !pm.running }
+    }
+
 }

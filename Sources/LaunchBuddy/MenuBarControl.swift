@@ -13,7 +13,9 @@ struct MenuBarControl: View {
                     pm.stop()
                 } else {
                     pm.start(scriptPath: settings.scriptPath,
-                             workingDirectory: settings.workingDirectory)
+                             workingDirectory: settings.workingDirectory,
+                             arguments: settings.scriptArguments,
+                             environment: settings.extraEnvironment)
                 }
             } label: {
                 HStack {

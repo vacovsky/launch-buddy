@@ -39,6 +39,17 @@ struct SettingsView: View {
                         browseForDirectory()
                     }
                 }
+
+                TextField("Arguments (whitespace-separated, quotes allowed)",
+                          text: $settings.scriptArguments)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.callout)
+
+                TextField("Environment (one KEY=VALUE per line)",
+                          text: $settings.extraEnvironment)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.callout)
+                    .lineLimit(3...8)
             }
 
             Section {
