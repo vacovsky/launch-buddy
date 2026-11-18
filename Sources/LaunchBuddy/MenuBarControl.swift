@@ -66,11 +66,11 @@ struct MenuBarControl: View {
             Divider()
 
             Button("View Output") {
-                openWindow(id: "output")
+                showWindow(id: "output")
             }
 
             Button("Settings…") {
-                openWindow(id: "settings")
+                showWindow(id: "settings")
             }
 
             Divider()
@@ -81,5 +81,14 @@ struct MenuBarControl: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+    }
+
+    /// Opens the window and brings the app forward. As an LSUIElement
+    /// (.accessory) app, Launch Buddy is not activated by openWindow on its
+    /// own — without the explicit activation the window opens behind
+    /// whatever app is in front and never becomes key.
+    private func showWindow(id: String) {
+        openWindow(id: id)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }

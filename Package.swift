@@ -8,7 +8,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "LaunchBuddy",
-            exclude: ["Info.plist"]
+            exclude: ["Info.plist", "AppIcon.icns"]
         ),
         .testTarget(
             name: "LaunchBuddyTests",
